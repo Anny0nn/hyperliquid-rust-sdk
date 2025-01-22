@@ -6,10 +6,12 @@ use crate::{
     meta::{Meta, SpotMeta, SpotMetaAndAssetCtxs},
     prelude::*,
     req::HttpClient,
-    ws::{Subscription, WsManager},
-    BaseUrl, Error, Message, OrderStatusResponse, ReferralResponse, UserFeesResponse,
-    UserFundingResponse, UserTokenBalanceResponse,
+    BaseUrl, Error, OrderStatusResponse, ReferralResponse, UserFeesResponse, UserFundingResponse,
+    UserTokenBalanceResponse,
 };
+
+#[cfg(not(target_family = "wasm"))]
+use crate::ws::{Message, Subscription, WsManager};
 
 use ethers::types::H160;
 use reqwest::Client;
@@ -92,6 +94,7 @@ pub enum InfoRequest {
 #[derive(Debug)]
 pub struct InfoClient {
     pub http_client: HttpClient,
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) ws_manager: Option<WsManager>,
     reconnect: bool,
 }
@@ -118,11 +121,13 @@ impl InfoClient {
 
         Ok(InfoClient {
             http_client: HttpClient { client, base_url },
+            #[cfg(not(target_family = "wasm"))]
             ws_manager: None,
             reconnect,
         })
     }
 
+    #[cfg(not(target_family = "wasm"))]
     pub async fn subscribe(
         &mut self,
         subscription: Subscription,
@@ -147,6 +152,7 @@ impl InfoClient {
             .await
     }
 
+    #[cfg(not(target_family = "wasm"))]
     pub async fn unsubscribe(&mut self, subscription_id: u32) -> Result<()> {
         if self.ws_manager.is_none() {
             let ws_manager = WsManager::new(

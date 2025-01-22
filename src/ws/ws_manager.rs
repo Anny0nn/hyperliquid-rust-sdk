@@ -17,16 +17,21 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    net::TcpStream,
     spawn,
     sync::{mpsc::UnboundedSender, Mutex},
     time,
 };
+
+#[cfg(not(target_family = "wasm"))]
+use tokio::net::TcpStream;
+
 use tokio_tungstenite::{
-    connect_async,
     tungstenite::{self, protocol},
-    MaybeTlsStream, WebSocketStream,
+    WebSocketStream,
 };
+
+#[cfg(not(target_family = "wasm"))]
+use tokio_tungstenite::{connect_async, MaybeTlsStream};
 
 use ethers::types::H160;
 
@@ -36,7 +41,9 @@ struct SubscriptionData {
     subscription_id: u32,
     id: String,
 }
+
 #[derive(Debug)]
+#[cfg(not(target_family = "wasm"))]
 pub(crate) struct WsManager {
     stop_flag: Arc<AtomicBool>,
     writer: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, protocol::Message>>>,
@@ -94,6 +101,7 @@ pub(crate) struct Ping {
     method: &'static str,
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl WsManager {
     const SEND_PING_INTERVAL: u64 = 50;
 
@@ -185,7 +193,9 @@ impl WsManager {
                     match serde_json::to_string(&Ping { method: "ping" }) {
                         Ok(payload) => {
                             let mut writer = writer.lock().await;
-                            if let Err(err) = writer.send(protocol::Message::Text(payload)).await {
+                            if let Err(err) =
+                                writer.send(protocol::Message::Text(payload.into())).await
+                            {
                                 error!("Error pinging server: {err}")
                             }
                         }
@@ -349,7 +359,7 @@ impl WsManager {
         .map_err(|e| Error::JsonParse(e.to_string()))?;
 
         writer
-            .send(protocol::Message::Text(payload))
+            .send(protocol::Message::Text(payload.into()))
             .await
             .map_err(|e| Error::Websocket(e.to_string()))?;
         Ok(())
@@ -455,6 +465,7 @@ impl WsManager {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl Drop for WsManager {
     fn drop(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
