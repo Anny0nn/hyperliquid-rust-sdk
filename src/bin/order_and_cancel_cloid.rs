@@ -15,9 +15,10 @@ async fn main() {
         .parse()
         .unwrap();
 
-    let exchange_client = ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), None, None)
-        .await
-        .unwrap();
+    let exchange_client =
+        ExchangeClient::new(None, Some(wallet), Some(BaseUrl::Testnet), None, None)
+            .await
+            .unwrap();
 
     // Order and Cancel with cloid
     let cloid = Uuid::new_v4();

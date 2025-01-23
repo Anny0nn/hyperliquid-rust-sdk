@@ -14,7 +14,7 @@ use crate::{
     meta::Meta,
     prelude::*,
     req::HttpClient,
-    signature::sign_l1_action,
+    signature::{l1_action_hash, sign_l1_action, typed_data_hash},
     BaseUrl, BulkCancelCloid, Error, ExchangeResponseStatus,
 };
 use crate::{ClassTransfer, SpotSend, SpotUser, VaultTransfer, Withdraw3};
@@ -88,7 +88,7 @@ impl Actions {
 impl ExchangeClient {
     pub async fn new(
         client: Option<Client>,
-        wallet: LocalWallet,
+        wallet: Option<LocalWallet>,
         base_url: Option<BaseUrl>,
         meta: Option<Meta>,
         vault_address: Option<H160>,
@@ -113,6 +113,12 @@ impl ExchangeClient {
             .await?
             .add_pair_and_name_to_index_map(coin_to_asset);
 
+        let wallet: LocalWallet = wallet.unwrap_or(
+            "e908f86dbb4d55ac876378565aafeabc187f6690f046459397b17d9b9a19688e"
+                .parse()
+                .unwrap(),
+        );
+
         Ok(ExchangeClient {
             wallet,
             meta,
@@ -125,7 +131,8 @@ impl ExchangeClient {
         })
     }
 
-    async fn post(
+    /// so we can use offline signatures
+    pub async fn post(
         &self,
         action: serde_json::Value,
         signature: Signature,
@@ -147,6 +154,32 @@ impl ExchangeClient {
             .await
             .map_err(|e| Error::JsonParse(e.to_string()))?;
         serde_json::from_str(output).map_err(|e| Error::JsonParse(e.to_string()))
+    }
+
+    pub async fn usdc_transfer_payload(
+        &self,
+        amount: &str,
+        destination: &str,
+    ) -> Result<(serde_json::Value, H256)> {
+        let hyperliquid_chain = if self.http_client.is_mainnet() {
+            "Mainnet".to_string()
+        } else {
+            "Testnet".to_string()
+        };
+
+        let timestamp = next_nonce();
+        let usd_send = UsdSend {
+            signature_chain_id: 421614.into(),
+            hyperliquid_chain,
+            destination: destination.to_string(),
+            amount: amount.to_string(),
+            time: timestamp,
+        };
+        let to_sign = typed_data_hash(&usd_send)?;
+        let action = serde_json::to_value(Actions::UsdSend(usd_send))
+            .map_err(|e| Error::JsonParse(e.to_string()))?;
+
+        Ok((action, to_sign))
     }
 
     pub async fn usdc_transfer(
@@ -226,6 +259,30 @@ impl ExchangeClient {
         let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
 
         self.post(action, signature, timestamp).await
+    }
+
+    pub async fn market_open_payload(
+        &self,
+        params: MarketOrderParams<'_>,
+    ) -> Result<(serde_json::Value, H256, u64)> {
+        let slippage = params.slippage.unwrap_or(0.05); // Default 5% slippage
+        let (px, sz_decimals) = self
+            .calculate_slippage_price(params.asset, params.is_buy, slippage, params.px)
+            .await?;
+
+        let order = ClientOrderRequest {
+            asset: params.asset.to_string(),
+            is_buy: params.is_buy,
+            reduce_only: false,
+            limit_px: px,
+            sz: round_to_decimals(params.sz, sz_decimals),
+            cloid: params.cloid,
+            order_type: ClientOrder::Limit(ClientLimit {
+                tif: "Ioc".to_string(),
+            }),
+        };
+
+        self.bulk_order_payload(vec![order]).await
     }
 
     pub async fn market_open(
@@ -396,6 +453,31 @@ impl ExchangeClient {
     ) -> Result<ExchangeResponseStatus> {
         self.bulk_order_with_builder(vec![order], wallet, builder)
             .await
+    }
+
+    pub async fn bulk_order_payload(
+        &self,
+        orders: Vec<ClientOrderRequest>,
+    ) -> Result<(serde_json::Value, H256, u64)> {
+        let timestamp = next_nonce();
+
+        let mut transformed_orders = Vec::new();
+
+        for order in orders {
+            transformed_orders.push(order.convert(&self.coin_to_asset)?);
+        }
+
+        let action = Actions::Order(BulkOrder {
+            orders: transformed_orders,
+            grouping: "na".to_string(),
+            builder: None,
+        });
+        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
+
+        let is_mainnet = self.http_client.is_mainnet();
+        let signature = l1_action_hash(connection_id, is_mainnet)?;
+        Ok((action, signature, timestamp))
     }
 
     pub async fn bulk_order(

@@ -10,9 +10,10 @@ async fn main() {
         .parse()
         .unwrap();
 
-    let exchange_client = ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), None, None)
-        .await
-        .unwrap();
+    let exchange_client =
+        ExchangeClient::new(None, Some(wallet), Some(BaseUrl::Testnet), None, None)
+            .await
+            .unwrap();
 
     let usd = "1"; // 1 USD
     let is_deposit = true;

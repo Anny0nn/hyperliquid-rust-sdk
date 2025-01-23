@@ -149,7 +149,7 @@ async fn user_funding_example(info_client: &InfoClient) {
 }
 
 async fn spot_meta_example(info_client: &InfoClient) {
-    info!("SpotMeta: {:?}", info_client.spot_meta().await.unwrap());
+    println!("SpotMeta: {:?}", info_client.spot_meta().await.unwrap());
 }
 
 async fn spot_meta_and_asset_contexts_example(info_client: &InfoClient) {

@@ -45,6 +45,22 @@ fn sign_hash(hash: H256, wallet: &LocalWallet) -> Result<Signature> {
     Ok(Signature { r, s, v })
 }
 
+pub(crate) fn l1_action_hash(connection_id: H256, is_mainnet: bool) -> Result<H256> {
+    let source = if is_mainnet { "a" } else { "b" }.to_string();
+    typed_data_hash(&l1::Agent {
+        source,
+        connection_id,
+    })
+}
+
+pub(crate) fn typed_data_hash<T: Eip712>(payload: &T) -> Result<H256> {
+    let encoded = payload
+        .encode_eip712()
+        .map_err(|e| Error::Eip712(e.to_string()))?;
+
+    Ok(H256::from(encoded))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
